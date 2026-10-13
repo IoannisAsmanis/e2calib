@@ -20,6 +20,57 @@ If you use this code in an academic context, please cite the following work:
 }
 ```
 
+## Docker (end-to-end calibration)
+The [docker](docker/) folder contains an image that bundles the full pipeline: conversion (ROS bags, Prophesee `.raw`/`.dat` via [OpenEB](https://github.com/prophesee-ai/openeb)), E2VID reconstruction (GPU if available) and intrinsic calibration with [Kalibr](https://github.com/ethz-asl/kalibr).
+
+```bash
+# Build (from the repository root). Optional build args:
+#   --build-arg WITH_METAVISION=0   skip OpenEB (no .raw/.dat support, faster build)
+#   --build-arg TORCH_FLAVOR=cpu    CPU-only PyTorch (smaller image)
+docker build -t e2calib:latest -f docker/Dockerfile .
+
+# Calibrate: event file in, calibration out
+docker/e2calib_docker.sh /path/to/data.raw /path/to/output --target /path/to/target.yaml
+```
+
+**Recording.** The image can also record a live camera to `.raw` (any camera supported by OpenEB 4.6.2):
+
+```bash
+docker/e2calib_docker.sh devices                                  # list connected cameras
+docker/e2calib_docker.sh record recordings/calib.raw --preview    # SPACE: start/stop, q: quit
+docker/e2calib_docker.sh record recordings/calib.raw --duration 90 # headless
+```
+
+In `--preview`, the camera biases can be tuned live before recording (`n`/`p` select, `+`/`-` adjust, `[`/`]` step size, `r` reset, `s` save); they are locked once recording starts.
+The biases in effect are saved next to every recording as `<name>.bias` and can be reapplied with `--biases FILE`.
+Further options: `--save-biases FILE`, `--serial S`, `--triggers` (enable the external trigger input).
+For third-party cameras whose plugin is distributed as an OpenEB source overlay, such as the Century Arks SilkyEvCam, pass the plugin source matching OpenEB 4.6.2 as a build context; its udev rule then ships in the image:
+
+```bash
+docker build -t e2calib:latest -f docker/Dockerfile \
+    --build-context silkyevcam=/path/to/SilkyEvCam_plugin_Source_for_MV462 .
+# one-time, on the host: give your user access to the camera
+docker run --rm --entrypoint cat e2calib:latest /opt/e2calib/udev/ca_device.rules | sudo tee /etc/udev/rules.d/ca_device.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+For calibration, keep the board moving smoothly (static scenes produce no events), cover the whole field of view including the corners, vary tilt and distance, and avoid flickering light sources.
+
+The sensor resolution is detected from `.raw`, `.dat` and `.bag` inputs (pass `--height`/`--width` for `.h5`).
+Without `--target` the pipeline stops after reconstructing frames and writing `reconstruction.bag`.
+The output folder contains `events.h5`, `frames/e2calib/*.png`, `reconstruction.bag` and `calibration/` (Kalibr camchain yaml, results and PDF report).
+Finished stages are reused when re-running into the same output folder (e.g. to try another `--target` or `--models`); add `--force` to recompute everything.
+Run `docker/e2calib_docker.sh --help` for all options (reconstruction frequency, trigger timestamps, bag topic, camera model, extra E2VID/Kalibr arguments).
+The target yaml follows the [Kalibr target format](https://github.com/ethz-asl/kalibr/wiki/calibration-targets), e.g.
+
+```yaml
+target_type: 'checkerboard'
+targetCols: 8           # number of internal corners
+targetRows: 6
+rowSpacingMeters: 0.03
+colSpacingMeters: 0.03
+```
+
 ## Installation
 The installation procedure is divided into two parts.
 First, installation of packages for the conversion code that must be completed outside of any virtual environment for compatibility reasons.

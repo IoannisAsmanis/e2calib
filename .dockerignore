@@ -1,0 +1,10 @@
+# Whitelist: the image only needs the python sources and the docker scripts.
+# (Keeps recordings/outputs that live in the repo out of the build context.)
+*
+!python
+!docker/*.sh
+!docker/*.py
+**/__pycache__
+**/*.egg-info
+**/build
+python/reconstruction/e2vid/pretrained/*.tar
